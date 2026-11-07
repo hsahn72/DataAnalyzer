@@ -17,8 +17,22 @@
                     <TextBlock x:Name="FileNameText" VerticalAlignment="Center" Foreground="#6B7586" MaxWidth="220" TextTrimming="CharacterEllipsis" Margin="6,0"/>
                     <TextBlock Text="시간 열" VerticalAlignment="Center" Foreground="#6B7586" Margin="6,0,4,0"/>
                     <ComboBox x:Name="TimeCombo" Width="110" SelectionChanged="TimeCombo_SelectionChanged"/>
+                    <StackPanel x:Name="CyclePanel" Orientation="Horizontal" Visibility="Collapsed" Margin="6,0,0,0">
+                        <TextBlock Text="Cycle" VerticalAlignment="Center" Foreground="#6B7586" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="CycleCombo" Width="100" SelectionChanged="CycleFilter_Changed"/>
+                        <TextBlock Text="Action" VerticalAlignment="Center" Foreground="#6B7586" Margin="6,0,4,0"/>
+                        <ComboBox x:Name="ActionCombo" Width="110" SelectionChanged="CycleFilter_Changed"/>
+                        <CheckBox x:Name="OverlayBox" Content="Cycle 기준 View" VerticalAlignment="Center" Margin="6,0,4,0" Click="CycleFilter_Changed"
+                                  ToolTip="Cycle 단위로 분리해 각 Cycle(또는 선택한 Action 구간)의 시작을 0에 맞춰 겹쳐 표시"/>
+                        <ComboBox x:Name="OverlayModeCombo" Width="90" SelectedIndex="0" ToolTip="겹침 표시 방식" SelectionChanged="OverlayMode_Changed">
+                            <ComboBoxItem Tag="auto">자동</ComboBoxItem>
+                            <ComboBoxItem Tag="ind">개별선</ComboBoxItem>
+                            <ComboBoxItem Tag="band">평균±산포</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
                     <Button Content="+ 차트 추가" Margin="8,2,2,2" Click="AddChart_Click"/>
                     <Button Content="Filter" ToolTip="Low-pass / 이동평균 (위상지연 없음)" Click="Filter_Click"/>
+                    <Button Content="Cycle·Action 분석" ToolTip="조이스틱 신호로 Digging / Hauling / Dumping / Returning 자동 라벨링" Click="CycleAnalysis_Click"/>
                     <Button Content="전체 보기" Click="ResetView_Click"/>
                     <TextBlock Text="X" VerticalAlignment="Center" Foreground="#6B7586" Margin="6,0,4,0"/>
                     <TextBox x:Name="XMinBox" Width="130" KeyDown="XRange_KeyDown" LostFocus="XRange_LostFocus"/>
