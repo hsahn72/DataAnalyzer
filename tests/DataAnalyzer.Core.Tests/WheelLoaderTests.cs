@@ -183,3 +183,74 @@ public class WheelLoaderEstimationTests
         Snap(d, Exp.GetProperty("s5"), 1e-6, 1e-6);
     }
 }
+
+public class WheelLoaderSineFricTests
+{
+    static string Fx(string f) => Path.Combine(AppContext.BaseDirectory, "Fixtures", f);
+    static readonly JsonElement Exp = JsonDocument.Parse(File.ReadAllText(Fx("wheelloader_br_expected.json"))).RootElement;
+    static double D(JsonElement e) => e.ValueKind == JsonValueKind.Null ? double.NaN : e.GetDouble();
+    static void Near(double e, double a, double rel, double abs, string what = "")
+    {
+        if (double.IsNaN(e)) { Assert.True(double.IsNaN(a), $"{what}: expected NaN, got {a}"); return; }
+        Assert.True(Math.Abs(e - a) <= abs + rel * Math.Abs(e), $"{what}: expected {e}, got {a}");
+    }
+    static void Pair(JsonElement e, (double V, double Se) a, double rel, string what) { Near(D(e[0]), a.V, rel, 1e-9, what); Near(D(e[1]), a.Se, rel, 1e-9, what + ".se"); }
+    static void Snap(DataSet d, JsonElement snap, double rel, double abs)
+    {
+        foreach (var p in snap.EnumerateObject())
+        {
+            Assert.True(d.Signals.ContainsKey(p.Name), "missing " + p.Name);
+            var a = d.Signals[p.Name]; int i = 0;
+            foreach (var v in p.Value.EnumerateArray()) { Near(D(v), a[i], rel, abs, p.Name + "[" + i + "]"); i += 23; }
+        }
+    }
+    static readonly string[] FricKeys = { "c", "p1", "p2", "v", "d", "jc", "jf" };
+
+    [Fact]
+    public void Sine_and_friction_fitting_match_html()
+    {
+        var d = DataSet.FromRaw(CsvParser.ParseFile(Fx("wheelloader.csv")), 0);
+        var K = WlGeom.Demo(); K["PinPPM"] = 12; K["PinPQM"] = 8; K["PinP41M"] = 10;
+        K["T4min"] = -40; K["T4max"] = 0; K["T3min"] = -5; K["T3max"] = 28; K["PYx"] = .7; K["PYy"] = .35;
+        var s = WlSignals.Guess(d); var st = new WlEstState();
+        WlAnalysis.AngTorque(d, K, s, "ang").ApplyTo(d);
+        WlAnalysis.AngTorque(d, K, s, "tq").ApplyTo(d);
+
+        void Check(WlBrEst e, JsonElement x, bool fric)
+        {
+            Pair(x.GetProperty("X"), e.X, 1e-6, "X"); Pair(x.GetProperty("Y"), e.Y, 1e-6, "Y"); Pair(x.GetProperty("C"), e.C, 1e-6, "C");
+            Near(D(x.GetProperty("k")[0]), e.KBest, 1e-9, 1e-9, "k");
+            Near(D(x.GetProperty("st").GetProperty("R2")), e.R2, 1e-6, 1e-9, "R2");
+            Assert.Equal(x.GetProperty("st").GetProperty("nb").GetInt32(), e.Bins);
+            Assert.Equal(x.GetProperty("st").GetProperty("ns").GetInt32(), e.Samples);
+            if (!fric) return;
+            Pair(x.GetProperty("d"), e.D, 1e-6, "d");
+            for (int j = 0; j < 7; j++) if (j != 4) Pair(x.GetProperty(FricKeys[j]), e.Fric![j], 1e-5, FricKeys[j]);
+            Assert.Equal(x.GetProperty("on").EnumerateArray().Select(v => v.GetBoolean()), e.FricOn!);
+            Near(D(x.GetProperty("fst").GetProperty("rms1")), e.FricRms1, 1e-6, 1e-6, "rms1");
+        }
+
+        var r1 = WlSineFric.Sine(d, K, s, st, out var e1); r1.ApplyTo(d);
+        Assert.False(r1.Warn, r1.Message); Assert.StartsWith(Exp.GetProperty("m1").GetProperty("t").GetString()!.Split('\n')[0], r1.Message);
+        Check(e1!, Exp.GetProperty("b1"), false);
+        Snap(d, Exp.GetProperty("s1"), 1e-6, 1e-6);
+
+        var r2 = WlSineFric.Friction(d, K, s, st, e1!); r2.ApplyTo(d);
+        Assert.False(r2.Warn, r2.Message);
+        Check(e1!, Exp.GetProperty("b2"), true);
+        Snap(d, Exp.GetProperty("s2"), 1e-5, 1e-6);
+        WlSineFric.CopyToK(K, e1!);
+        foreach (var p in Exp.GetProperty("K2").EnumerateObject()) Near(D(p.Value), K[p.Name], 1e-5, 1e-9, p.Name);
+
+        K.Text["BrC"] = "zero"; K.Text["BrD"] = "on"; K.Text["BkNN"] = "free"; K["WTwin"] = 0; K["IRLSn"] = 0;
+        var rg = new Dictionary<string, bool> { ["uF4p2"] = false, ["uFjc"] = true };
+        var r3 = WlSineFric.Sine(d, K, s, st, out var e3); r3.ApplyTo(d);
+        Assert.False(r3.Warn, r3.Message);
+        Check(e3!, Exp.GetProperty("b3"), false); Pair(Exp.GetProperty("b3").GetProperty("d"), e3!.D, 1e-6, "d3");
+        Snap(d, Exp.GetProperty("s3"), 1e-6, 1e-6);
+        var r4 = WlSineFric.Friction(d, K, s, st, e3, rg); r4.ApplyTo(d);
+        Assert.False(r4.Warn, r4.Message);
+        Check(e3, Exp.GetProperty("b4"), true);
+        Snap(d, Exp.GetProperty("s4"), 1e-5, 1e-6);
+    }
+}
