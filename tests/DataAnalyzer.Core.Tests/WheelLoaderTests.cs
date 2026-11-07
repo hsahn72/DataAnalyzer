@@ -103,3 +103,83 @@ public class WheelLoaderTests
         CompareSnap(d, Exp.GetProperty("tq2"), 1e-6, 1e-6);
     }
 }
+
+/// <summary>
+/// wheelloader_est_expected.json: 같은 CSV를 HTML의 wlEstBkt → wlEstArm → wlWeighOn → wlLabelRun으로 처리하고,
+/// Static·방향 선별·가중 없음·부호 제약 없음·일부 고정 조건으로 wlEstBkt를 다시 실행한 결과.
+/// </summary>
+public class WheelLoaderEstimationTests
+{
+    static string Fx(string f) => Path.Combine(AppContext.BaseDirectory, "Fixtures", f);
+    static readonly JsonElement Exp = JsonDocument.Parse(File.ReadAllText(Fx("wheelloader_est_expected.json"))).RootElement;
+    static double D(JsonElement e) => e.ValueKind == JsonValueKind.Null ? double.NaN : e.GetDouble();
+    static void Near(double e, double a, double rel, double abs, string what = "")
+    {
+        if (double.IsNaN(e)) { Assert.True(double.IsNaN(a), $"{what}: expected NaN, got {a}"); return; }
+        Assert.True(Math.Abs(e - a) <= abs + rel * Math.Abs(e), $"{what}: expected {e}, got {a}");
+    }
+    static void Snap(DataSet d, JsonElement snap, double rel, double abs)
+    {
+        foreach (var p in snap.EnumerateObject())
+        {
+            Assert.True(d.Signals.ContainsKey(p.Name), "missing " + p.Name);
+            var a = d.Signals[p.Name]; int i = 0;
+            foreach (var v in p.Value.EnumerateArray()) { Near(D(v), a[i], rel, abs, p.Name + "[" + i + "]"); i += 23; }
+        }
+    }
+    static void Keys(KinParams k, JsonElement e, double rel)
+    {
+        foreach (var p in e.EnumerateObject()) Near(D(p.Value), k[p.Name], rel, 1e-9, p.Name);
+    }
+
+    [Fact]
+    public void Estimation_weighing_labeling_match_html()
+    {
+        var d = DataSet.FromRaw(CsvParser.ParseFile(Fx("wheelloader.csv")), 0);
+        var K = WlGeom.Demo(); K["PinPPM"] = 12; K["PinPQM"] = 8; K["PinP41M"] = 10;
+        K["T4min"] = -40; K["T4max"] = 0; K["T3min"] = -5; K["T3max"] = 28; K["PYx"] = .7; K["PYy"] = .35;
+        var s = WlSignals.Guess(d); var st = new WlEstState();
+        WlAnalysis.AngTorque(d, K, s, "ang").ApplyTo(d);
+        WlAnalysis.AngTorque(d, K, s, "tq").ApplyTo(d);
+
+        var r1 = WlEstimation.EstimateBucket(d, K, s, st); r1.ApplyTo(d);
+        Assert.True(r1.Ok, r1.Message);
+        var eb = Exp.GetProperty("bkt");
+        for (int j = 0; j < 10; j++) Near(D(eb.GetProperty(new[] { "X", "Y", "J", "c", "p1", "p2", "v", "d", "jc", "jf" }[j])[0]), st.Bkt!.X[j], 1e-6, 1e-6, "bkt" + j);
+        Near(D(eb.GetProperty("rms1")), st.Bkt!.Rms1, 1e-6, 1e-6); Near(D(eb.GetProperty("eps")), st.Bkt.Eps, 1e-9, 1e-12);
+        Assert.Equal(eb.GetProperty("n").GetInt32(), st.Bkt.N);
+        Keys(K, Exp.GetProperty("K1"), 1e-4);
+        Snap(d, Exp.GetProperty("s1"), 1e-6, 1e-6);
+
+        var r2 = WlEstimation.EstimateArm(d, K, s, st); r2.ApplyTo(d);
+        Assert.True(r2.Ok, r2.Message);
+        var ea = Exp.GetProperty("arm");
+        Assert.Equal(ea.GetProperty("n").GetInt32(), st.Arm!.N);
+        Near(D(ea.GetProperty("P")[0]), st.Arm.X[0], 1e-6, 1e-6); Near(D(ea.GetProperty("Q")[0]), st.Arm.X[1], 1e-6, 1e-6); Near(D(ea.GetProperty("v")[0]), st.Arm.X[5], 1e-6, 1e-6);
+        Near(D(ea.GetProperty("rms1")), st.Arm.Rms1, 1e-6, 1e-6);
+        Keys(K, Exp.GetProperty("K2"), 1e-4);
+        Snap(d, Exp.GetProperty("s2"), 1e-6, 1e-6);
+
+        var w = WlEstimation.Weigh(d, K, s, 5, 20, "커서 구간"); w.ApplyTo(d);
+        Assert.Equal(Exp.GetProperty("wOut").EnumerateArray().Select(x => x.GetString()), w.Outputs.Select(o => o.Name));
+        Snap(d, Exp.GetProperty("s3"), 1e-6, 1e-4);
+        var stt = WlEstimation.Stat(d.Signals["WL_Payload_kg"], d.Time, 5, 20)!; var es = Exp.GetProperty("stat");
+        Assert.Equal(es.GetProperty("n").GetInt32(), stt.N); Near(D(es.GetProperty("med")), stt.Med, 1e-6, 1e-4);
+
+        var lab = WlEstimation.Label(d, K, s, true, false); lab.ApplyTo(d);
+        Assert.StartsWith(Exp.GetProperty("lab").GetProperty("t").GetString()!.Split('\n')[0], lab.Message);
+        Snap(d, Exp.GetProperty("s4"), 0, 0);
+
+        K.Text["BkMode"] = "static"; K.Text["BkSel"] = "on"; K.Text["BkNN"] = "free";
+        K["BkC0"] = -40; K["BkC1"] = -2; K["BkD0"] = -38; K["BkD1"] = 0; K["WTwin"] = 0; K["IRLSn"] = 0; K["uF4p2"] = 150;
+        st.RegOn["uF4p2"] = false; st.RegOn["uFjc"] = true; st.DirInv = true;
+        var r3 = WlEstimation.EstimateBucket(d, K, s, st); r3.ApplyTo(d);
+        Assert.True(r3.Ok, r3.Message);
+        var e2 = Exp.GetProperty("bkt2");
+        Assert.Equal(e2.GetProperty("on").EnumerateArray().Select(x => x.GetBoolean()), st.Bkt!.On);
+        Assert.Equal(e2.GetProperty("n").GetInt32(), st.Bkt.N);
+        for (int j = 0; j < 10; j++) Near(D(e2.GetProperty(new[] { "X", "Y", "J", "c", "p1", "p2", "v", "d", "jc", "jf" }[j])[0]), st.Bkt.X[j], 1e-4, 1e-4, "bkt2-" + j);
+        Keys(K, Exp.GetProperty("K3"), 1e-4);
+        Snap(d, Exp.GetProperty("s5"), 1e-6, 1e-6);
+    }
+}
