@@ -321,6 +321,19 @@ public partial class MainWindow : Window
         _listDown = null; _listSignal = null;
     }
 
+    // ---------- 분석 ----------
+
+    void Filter_Click(object sender, RoutedEventArgs e)
+    {
+        if (S.Data == null) { MessageBox.Show(this, "CSV를 먼저 여세요", "Filter"); return; }
+        var pre = (_active as TimeChart)?.Signals.FirstOrDefault();
+        new FilterDialog(S, pre, (src, result) =>
+        {
+            // 결과가 이미 어느 차트에 있으면 새 차트를 만들지 않는다 (같은 설정으로 다시 누른 경우)
+            if (!_charts.Any(c => c.Signals.Contains(result))) AddChart(new[] { src, result });
+        }) { Owner = this }.ShowDialog();
+    }
+
     // ---------- 표시 구간·커서 ----------
 
     void ResetView_Click(object sender, RoutedEventArgs e) => S.ResetView();

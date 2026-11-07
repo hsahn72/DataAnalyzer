@@ -253,6 +253,15 @@ public sealed class AppState
         return s;
     }
 
+    /// <summary>계산한 신호를 데이터에 추가 (같은 이름이면 바꿈)하고 화면을 갱신한다.</summary>
+    public void PutSignal(string name, double[] values, string unit = "")
+    {
+        if (Data == null) return;
+        Data.Put(name, values, unit);
+        DataChanged?.Invoke();
+        Notify();
+    }
+
     public void Clear()
     {
         Raw = null; Data = null; Reference = null; FileName = "";
