@@ -116,6 +116,13 @@ public sealed class TimeChart : ChartBase
         _markers.Clear();
         var d = S.Data;
         if (d == null) { _span = null; _va = _vb = null; return; }
+        if (S.OverlayOn)
+        {
+            // 겹쳐보기는 표시 범위에 따라 Redraw에서 그린다
+            _span = null; _va = _vb = null;
+            p.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericAutomatic { LabelFormatter = v => Format.Precision(v, 6), MinimumTickSpacing = 50 };
+            return;
+        }
         var r = S.Ref;
         var hl = Highlight != null && Signals.Contains(Highlight) ? Highlight : null;
         var order = hl == null ? Signals.ToList() : Signals.Where(x => x != hl).Append(hl).ToList();
@@ -141,7 +148,7 @@ public sealed class TimeChart : ChartBase
             }
             if (r != null && r.Signals.TryGetValue(s, out var ra) && r.Time.Length > 1)
                 Add(r.Time, ra, col.WithAlpha(.6 * alpha), LinePattern.Dashed);
-            Add(d.Time, a, col.WithAlpha(alpha), Pattern(st.Dash));
+            Add(d.Time, S.Arr(s), col.WithAlpha(alpha), Pattern(st.Dash));
             _lines.Add((s, lines));
         }
         _span = p.Add.HorizontalSpan(0, 0, SColor.FromHex("#1c2330").WithAlpha(.07));
@@ -177,6 +184,7 @@ public sealed class TimeChart : ChartBase
         foreach (var m in _markers) p.Remove(m);
         _markers.Clear();
         if (d == null || d.Count == 0) { Wp.Refresh(); UpdateChipValues(); return; }
+        if (S.OverlayOn) { RedrawOverlay(d); return; }
 
         double x0 = S.ViewMin, x1 = S.ViewMax;
         var (i0, i1) = Series.VisibleRange(d.Time, x0, x1);
@@ -189,7 +197,7 @@ public sealed class TimeChart : ChartBase
         double gmin = double.PositiveInfinity, gmax = double.NegativeInfinity;
         foreach (var (s, _) in _lines)
         {
-            var (mn, mx) = Series.MinMax(d.Signals[s], i0, i1);
+            var (mn, mx) = Series.MinMax(S.Arr(s), i0, i1);
             if (r != null && r.Signals.TryGetValue(s, out var b) && ri1 >= ri0)
             {
                 var (rn, rx) = Series.MinMax(b, ri0, ri1);
@@ -244,6 +252,127 @@ public sealed class TimeChart : ChartBase
         }
         PlaceCursor(_va, S.CursorA, "A", AppState.CursorAColor, d, r);
         PlaceCursor(_vb, S.CursorB, "B", AppState.CursorBColor, d, r);
+        Wp.Refresh();
+        UpdateChipValues();
+    }
+
+    /// <summary>
+    /// Cycle 겹쳐보기: X = 각 Cycle(또는 선택 Action 구간) 시작 기준 시간.
+    /// Cycle이 많으면 평균 ± 1σ 띠 (점선 = 최소/최대), 적으면 Cycle마다 선 하나.
+    /// </summary>
+    void RedrawOverlay(DataSet d)
+    {
+        var p = Wp.Plot;
+        p.Clear();
+        _lines.Clear(); _span = null; _va = _vb = null;
+        var (groups, _) = S.Groups;
+        bool band = S.UseBand;
+        var sigs = Signals.Where(d.Signals.ContainsKey).ToList();
+        var rng = new Dictionary<string, (double, double)>();
+        double gmin = double.PositiveInfinity, gmax = double.NegativeInfinity;
+        foreach (var s in sigs)
+        {
+            double mn = double.PositiveInfinity, mx = double.NegativeInfinity;
+            if (band)
+            {
+                var b = S.Band(s);
+                for (int k = 0; k < b.M; k++) if (b.Count[k] > 0) { mn = Math.Min(mn, b.Min[k]); mx = Math.Max(mx, b.Max[k]); }
+            }
+            else
+            {
+                var a = d.Signals[s];
+                foreach (var g in groups) foreach (var i in g.Index) { var v = a[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+            }
+            rng[s] = (mn, mx); gmin = Math.Min(gmin, mn); gmax = Math.Max(gmax, mx);
+        }
+        double ya, yb;
+        _map.Clear();
+        if (Normalized)
+        {
+            ya = 0; yb = 100; _yr = null;
+            foreach (var s in sigs) { var (lo, hi) = Series.Pad(rng[s].Item1, rng[s].Item2); double k = 100 / (hi - lo); _map[s] = (k, -lo * k); }
+            var tg = new ScottPlot.TickGenerators.NumericManual();
+            for (int k = 0; k <= 4; k++) tg.AddMajor(k * 25, k * 25 + "%");
+            p.Axes.Left.TickGenerator = tg;
+        }
+        else
+        {
+            (ya, yb) = Series.Pad(gmin, gmax);
+            if (YMin != null) ya = YMin.Value;
+            if (YMax != null) yb = YMax.Value;
+            if (!(yb > ya)) { if (YMin != null) yb = ya + 1; else ya = yb - 1; }
+            if (_yManual != null && _yManualFor != (YMin, YMax)) _yManual = null;
+            if (_yManual != null) (ya, yb) = _yManual.Value;
+            _yr = (ya, yb);
+            foreach (var s in sigs) _map[s] = (1, 0);
+            if (p.Axes.Left.TickGenerator is not ScottPlot.TickGenerators.NumericAutomatic)
+                p.Axes.Left.TickGenerator = new ScottPlot.TickGenerators.NumericAutomatic();
+        }
+
+        int total = groups.Sum(g => g.Index.Length), stp = Math.Max(1, (int)Math.Ceiling(total / 250000.0));
+        foreach (var s in sigs)
+        {
+            var st = StyleOf(s);
+            var col = ToScott(st.Color);
+            var (k, off) = _map[s];
+            if (band)
+            {
+                var b = S.Band(s);
+                // 표본이 있는 연속 구간마다 띠·선
+                int kk = 0;
+                while (kk < b.M)
+                {
+                    if (b.Count[kk] == 0) { kk++; continue; }
+                    int k0 = kk;
+                    while (kk < b.M && b.Count[kk] > 0) kk++;
+                    int len = kk - k0;
+                    var xs = Enumerable.Range(k0, len).Select(b.X).ToArray();
+                    double[] Map(Func<int, double> f) => Enumerable.Range(k0, len).Select(i => f(i) * k + off).ToArray();
+                    if (len > 1)
+                    {
+                        var fill = p.Add.FillY(xs, Map(i => b.Mean[i] + b.Sd[i]), Map(i => b.Mean[i] - b.Sd[i]));
+                        fill.FillColor = col.WithAlpha(.16); fill.LineWidth = 0;
+                    }
+                    foreach (var arr in new[] { b.Min, b.Max })
+                    {
+                        var l = p.Add.ScatterLine(xs, Map(i => arr[i]), col.WithAlpha(.5));
+                        l.LineWidth = 1; l.LinePattern = LinePattern.Dotted;
+                    }
+                    var mean = p.Add.ScatterLine(xs, Map(i => b.Mean[i]), col);
+                    mean.LineWidth = (float)Math.Max(2, st.Width * 1.4);
+                }
+            }
+            else
+            {
+                var a = d.Signals[s];
+                double alpha = groups.Count > 6 ? .55 : .85;
+                foreach (var g in groups)
+                {
+                    // NaN에서 끊기
+                    var xs = new List<double>(); var ys = new List<double>();
+                    void Flush()
+                    {
+                        if (xs.Count > 1) { var l = p.Add.ScatterLine(xs.ToArray(), ys.ToArray(), col.WithAlpha(alpha)); l.LineWidth = (float)st.Width; l.LinePattern = Pattern(st.Dash); }
+                        xs.Clear(); ys.Clear();
+                    }
+                    for (int j = 0; j < g.Index.Length; j += stp)
+                    {
+                        double v = a[g.Index[j]];
+                        if (double.IsNaN(v)) { Flush(); continue; }
+                        xs.Add(g.Rel[j]); ys.Add(v * k + off);
+                    }
+                    Flush();
+                }
+            }
+        }
+        string unit = d.IsDate ? "s" : (d.TimeUnit.Length > 0 ? d.TimeUnit : "시간");
+        string what = S.ActionSelection != null && S.ActionColumn != null ? S.ActionLabel(S.ActionSelection.Value) + " 구간" : "Cycle";
+        var noteText = $"Cycle 겹침 {groups.Count}개 · {(band ? "평균 ± 1σ (점선 = 최소/최대)" : "개별선")} · X = 각 {what} 시작 기준 [{unit}]";
+        var note = p.Add.Annotation(noteText, Alignment.UpperLeft);
+        note.LabelFontName = Fonts.Detect(noteText); // 한글 글꼴 (Malgun Gothic 등)
+        note.LabelFontSize = 11; note.LabelFontColor = SColor.FromHex("#6b7586");
+        note.LabelBackgroundColor = Colors.Transparent; note.LabelBorderColor = Colors.Transparent; note.LabelShadowColor = Colors.Transparent;
+        p.Axes.SetLimits(S.ViewMin, S.ViewMax, ya, yb);
         Wp.Refresh();
         UpdateChipValues();
     }

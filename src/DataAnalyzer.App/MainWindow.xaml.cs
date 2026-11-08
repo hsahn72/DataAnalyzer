@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     ChartBase? _active;
     bool _sortAZ;
     bool _fillingTime;
+    bool _fillingCycle;
+    /// <summary>Cycle·Action 분석 설정 (데이터가 바뀌면 신호 이름으로 다시 추측)</summary>
+    DataAnalyzer.Core.Analysis.CycleConfig? _cycleConfig;
+    DataSet? _cycleConfigFor;
 
     public MainWindow()
     {
@@ -168,6 +172,57 @@ public partial class MainWindow : Window
         foreach (var x in _xy) x.FillCombos();
         foreach (var c in AllCharts()) { c.RenderChips(); c.Rebuild(); }
         EmptyText.Visibility = S.Data == null ? Visibility.Visible : Visibility.Collapsed;
+        FillCycleCombos();
+    }
+
+    // ---------- Cycle / Action 거르기 ----------
+
+    void FillCycleCombos()
+    {
+        bool hasC = S.CycleColumn != null, hasA = S.ActionColumn != null;
+        CyclePanel.Visibility = hasC || hasA ? Visibility.Visible : Visibility.Collapsed;
+        _fillingCycle = true;
+        var cItems = new List<ComboBoxItem> { new() { Content = "All Cycles", Tag = null } };
+        cItems.AddRange(S.CycleValues.Select(v => new ComboBoxItem { Content = "Cycle " + v, Tag = v }));
+        CycleCombo.ItemsSource = cItems;
+        CycleCombo.SelectedItem = cItems.FirstOrDefault(i => (int?)i.Tag == S.CycleSelection) ?? cItems[0];
+        var aItems = new List<ComboBoxItem> { new() { Content = "All Actions", Tag = null } };
+        aItems.AddRange(S.ActionValues.Select(v => new ComboBoxItem { Content = S.ActionLabel(v), Tag = v }));
+        ActionCombo.ItemsSource = aItems;
+        ActionCombo.SelectedItem = aItems.FirstOrDefault(i => (int?)i.Tag == S.ActionSelection) ?? aItems[0];
+        CycleCombo.IsEnabled = hasC; ActionCombo.IsEnabled = hasA;
+        OverlayBox.IsEnabled = hasC; OverlayModeCombo.IsEnabled = hasC;
+        OverlayBox.IsChecked = S.OverlayChecked;
+        _fillingCycle = false;
+    }
+
+    void CycleFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_fillingCycle || S.Data == null) return;
+        S.SetCycleSelection((CycleCombo.SelectedItem as ComboBoxItem)?.Tag as int?,
+            (ActionCombo.SelectedItem as ComboBoxItem)?.Tag as int?, OverlayBox.IsChecked == true);
+    }
+
+    void OverlayMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (S == null || OverlayModeCombo.SelectedItem is not ComboBoxItem it) return;
+        S.SetOverlayMode((string)it.Tag);
+    }
+
+    void CycleAnalysis_Click(object sender, RoutedEventArgs e)
+    {
+        var d = S.Data;
+        if (d == null) { MessageBox.Show(this, "CSV를 먼저 여세요", "Cycle·Action 분석"); return; }
+        if (_cycleConfig == null || _cycleConfigFor != d)
+        {
+            _cycleConfig = new DataAnalyzer.Core.Analysis.CycleConfig();
+            DataAnalyzer.Core.Analysis.CycleAnalysis.GuessAxes(_cycleConfig, d.Names);
+            _cycleConfigFor = d;
+        }
+        new CycleDialog(S, _cycleConfig, () =>
+        {
+            if (!_charts.Any(c => c.Signals.Contains("Cycle"))) AddChart(new[] { "Cycle", "Action" });
+        }) { Owner = this }.Show();
     }
 
     void OnViewChanged()
@@ -319,6 +374,19 @@ public partial class MainWindow : Window
     {
         if (_listDown != null && _listSignal != null && _active != null) _active.AddSignal(_listSignal);
         _listDown = null; _listSignal = null;
+    }
+
+    // ---------- 분석 ----------
+
+    void Filter_Click(object sender, RoutedEventArgs e)
+    {
+        if (S.Data == null) { MessageBox.Show(this, "CSV를 먼저 여세요", "Filter"); return; }
+        var pre = (_active as TimeChart)?.Signals.FirstOrDefault();
+        new FilterDialog(S, pre, (src, result) =>
+        {
+            // 결과가 이미 어느 차트에 있으면 새 차트를 만들지 않는다 (같은 설정으로 다시 누른 경우)
+            if (!_charts.Any(c => c.Signals.Contains(result))) AddChart(new[] { src, result });
+        }) { Owner = this }.ShowDialog();
     }
 
     // ---------- 표시 구간·커서 ----------
