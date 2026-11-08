@@ -170,4 +170,21 @@ public class ExcavatorTests
             if (key == "ip4") Assert.Equal(Exp.GetProperty("ipMsg").GetString(), outp.Message);
         }
     }
+
+    [Fact]
+    public void PoseAt_sample_times_matches_angle_conversion()
+    {
+        var (d, ex) = Pipeline();
+        ex.CalcAngles().ApplyTo(d);
+        var tx = d.Signals["Tip_X_m"]; var ty = d.Signals["Tip_Y_m"]; int checkedN = 0;
+        for (int i = 0; i < d.Count; i += 97)
+        {
+            var p = ExcavatorPose.At(ex.G, ex.S, d, d.Time[i]);
+            if (double.IsNaN(tx[i])) { Assert.False(p.Ok); continue; }
+            Assert.True(p.Ok);
+            Assert.Equal(tx[i], p.Fk!.Tip.X, 9); Assert.Equal(ty[i], p.Fk.Tip.Y, 9);
+            checkedN++;
+        }
+        Assert.True(checkedN > 5);
+    }
 }

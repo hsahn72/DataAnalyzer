@@ -273,6 +273,15 @@ public sealed class AppState
         Notify();
     }
 
+    /// <summary>여러 신호를 한꺼번에 추가 (화면 갱신은 한 번)</summary>
+    public void PutSignals(IEnumerable<(string Name, double[] Values, string Unit)> list)
+    {
+        if (Data == null) return;
+        foreach (var (n, v, u) in list) Data.Put(n, v, u);
+        RaiseDataChanged();
+        Notify();
+    }
+
     public void Clear()
     {
         Raw = null; Data = null; Reference = null; FileName = "";
