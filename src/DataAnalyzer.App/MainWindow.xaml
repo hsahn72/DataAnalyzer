@@ -33,6 +33,7 @@
                     <Button Content="+ 차트 추가" Margin="8,2,2,2" Click="AddChart_Click"/>
                     <Button Content="Filter" ToolTip="Low-pass / 이동평균 (위상지연 없음)" Click="Filter_Click"/>
                     <Button Content="Cycle·Action 분석" ToolTip="조이스틱 신호로 Digging / Hauling / Dumping / Returning 자동 라벨링" Click="CycleAnalysis_Click"/>
+                    <Button Content="굴착기 분석" ToolTip="Kinematics · 2D Animation · 동역학 · Power · 관성 추정" Click="Excavator_Click"/>
                     <Button Content="전체 보기" Click="ResetView_Click"/>
                     <TextBlock Text="X" VerticalAlignment="Center" Foreground="#6B7586" Margin="6,0,4,0"/>
                     <TextBox x:Name="XMinBox" Width="130" KeyDown="XRange_KeyDown" LostFocus="XRange_LostFocus"/>

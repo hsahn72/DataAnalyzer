@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using DataAnalyzer.App.Controls;
+using DataAnalyzer.App.Analysis;
 using DataAnalyzer.App.Dialogs;
 using DataAnalyzer.Core.Config;
 using DataAnalyzer.Core.Data;
@@ -387,6 +388,40 @@ public partial class MainWindow : Window
             // 결과가 이미 어느 차트에 있으면 새 차트를 만들지 않는다 (같은 설정으로 다시 누른 경우)
             if (!_charts.Any(c => c.Signals.Contains(result))) AddChart(new[] { src, result });
         }) { Owner = this }.ShowDialog();
+    }
+
+    // ---------- 굴착기 · 휠로더 분석 창 ----------
+
+    ExcavatorWindow? _exWin;
+
+    void Excavator_Click(object sender, RoutedEventArgs e)
+    {
+        if (_exWin == null || !_exWin.IsLoaded)
+        {
+            _exWin = new ExcavatorWindow(S, ShowResult) { Owner = this };
+            _exWin.Show();
+        }
+        else _exWin.Activate();
+    }
+
+    /// <summary>계산 결과의 신호를 추가하고, 결과가 제안한 차트 중 아직 없는 것을 만든다.</summary>
+    public void ShowResult(DataAnalyzer.Core.Excavator.CalcResult r)
+    {
+        if (S.Data == null || r.Outputs.Count == 0) return;
+        S.PutSignals(r.Outputs.Select(o => (o.Name, o.Values, o.Unit)));
+        foreach (var sigs in r.Charts)
+        {
+            var have = sigs.Where(x => S.Data.Signals.ContainsKey(x)).ToArray();
+            if (have.Length == 0) continue;
+            var c = _charts.FirstOrDefault(c => have.All(c.Signals.Contains));
+            if (c == null) AddChart(have);
+        }
+        foreach (var g in r.XyCharts.GroupBy(x => x.X))
+        {
+            var ys = g.Select(x => x.Y).Where(y => S.Data.Signals.ContainsKey(y)).ToArray();
+            if (!S.Data.Signals.ContainsKey(g.Key) || ys.Length == 0) continue;
+            if (!_xy.Any(x => x.XSignal == g.Key && ys.All(x.Signals.Contains))) AddXY(g.Key, ys);
+        }
     }
 
     // ---------- 표시 구간·커서 ----------
