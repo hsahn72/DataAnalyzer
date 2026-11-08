@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Linux/macOS에서도 컴파일 확인이 되도록 (실행은 Windows에서만) -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>DataAnalyzer.App</RootNamespace>
+    <AssemblyName>DataAnalyzer</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- ScottPlot.WPF가 쓰는 SkiaSharp.Views.WPF는 .NET Framework 대상 패키지지만 .NET 8에서 정상 동작 -->
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ScottPlot.WPF" Version="5.1.57" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataAnalyzer.Core\DataAnalyzer.Core.csproj" />
+  </ItemGroup>
+
+</Project>
