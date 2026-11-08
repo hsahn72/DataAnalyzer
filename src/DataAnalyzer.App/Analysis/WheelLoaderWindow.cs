@@ -57,7 +57,6 @@ public sealed class WheelLoaderWindow : Window
         OnData();
     }
 
-    static string PresetFile => Ui.AppDataFile("wheelloader_params.json");
     static string LastFile => Ui.AppDataFile("wheelloader_last.json");
     void SaveLast() { try { File.WriteAllText(LastFile, K.ToJson()); } catch { } }
 
@@ -107,7 +106,7 @@ public sealed class WheelLoaderWindow : Window
     };
     static readonly (string V, string T)[] Sg = { ("+", "+"), ("-", "−") };
 
-    static Dictionary<string, string> LoadPresets() { try { return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(PresetFile)) ?? new(); } catch { return new(); } }
+    static SortedDictionary<string, string> LoadPresets() => AppStore.List("wheelloader");
 
     void SetK(KinParams k) { K = k; _pvL = null; _view.Fit(); SaveLast(); Rebuild(); }
 
@@ -120,13 +119,13 @@ public sealed class WheelLoaderWindow : Window
         string Sel() => (string)((ComboBoxItem)ps.SelectedItem).Tag;
         p.Children.Add(Ui.Row(ps,
             Ui.Btn("불러오기", () => { if (LoadPresets().TryGetValue(Sel(), out var js)) SetK(KinParams.FromJson(js)); }),
-            Ui.Btn("이 PC에 저장", () =>
+            Ui.Btn("저장", () =>
             {
                 var nm = K.Name.Trim(); if (nm == "") { Msg("a", "장비 이름을 입력하세요", true, msg); return; }
-                var s = LoadPresets(); s[nm] = K.ToJson(); try { File.WriteAllText(PresetFile, JsonSerializer.Serialize(s)); } catch { }
-                Msg("a", "저장됨: " + nm, false); BuildA();
-            }),
-            Ui.Btn("삭제", () => { var n = Sel(); if (n == "") return; var s = LoadPresets(); s.Remove(n); try { File.WriteAllText(PresetFile, JsonSerializer.Serialize(s)); } catch { } BuildA(); }),
+                AppStore.Put("wheelloader", nm, K.ToJson());
+                Msg("a", "저장됨: " + nm + " (" + AppStore.Where + ")", false); BuildA();
+            }, tip: AppStore.SaveTip),
+            Ui.Btn("삭제", () => { var n = Sel(); if (n == "") return; AppStore.Remove("wheelloader", n); BuildA(); }),
             Ui.Btn("JSON 내보내기", () =>
             {
                 var dlg = new SaveFileDialog { FileName = "wheelloader_" + string.Concat((K.Name == "" ? "params" : K.Name).Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) + ".json", Filter = "JSON (*.json)|*.json" };

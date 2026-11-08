@@ -12,7 +12,7 @@ namespace DataAnalyzer.App.Dialogs;
 /// </summary>
 public sealed class ConfigDialog : Window
 {
-    readonly PresetStore _store = new(PresetStore.DefaultPath);
+    readonly PresetStore _store = new(AppStore.Safe);
     readonly Func<ChartConfig?> _get;
     readonly Func<ChartConfig, string> _apply;
     readonly TextBox _name = new() { Width = 200 };
@@ -54,6 +54,8 @@ public sealed class ConfigDialog : Window
     {
         _list.Children.Clear();
         var p = _store.Load();
+        _list.Children.Add(new TextBlock { Text = "저장 위치: " + _store.Where, Foreground = Brushes.Gray, FontSize = 11 });
+        if (AppStore.LastError != "") _list.Children.Add(new TextBlock { Text = AppStore.LastError, Foreground = Brushes.Firebrick, TextWrapping = TextWrapping.Wrap, FontSize = 11 });
         if (p.Count == 0) { _list.Children.Add(new TextBlock { Text = "저장된 설정이 없습니다.", Foreground = Brushes.Gray }); return; }
         foreach (var (name, cfg) in p)
         {
@@ -78,7 +80,7 @@ public sealed class ConfigDialog : Window
         _store.Put(n, cfg);
         _name.Text = "";
         RenderList();
-        _msg.Text = "저장됨: " + n;
+        _msg.Text = "저장됨: " + n + " (" + _store.Where + ")";
     }
 
     void Export()

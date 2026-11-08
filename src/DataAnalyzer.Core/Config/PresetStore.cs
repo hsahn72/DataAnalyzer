@@ -1,35 +1,31 @@
 using System.Text.Json;
+using DataAnalyzer.Core.Storage;
 
 namespace DataAnalyzer.Core.Config;
 
-/// <summary>이름 붙인 차트 구성을 JSON 파일 하나에 저장한다.</summary>
+/// <summary>이름 붙인 차트 구성 저장 (종류 "chart"). 파일 또는 DB 저장소를 쓴다.</summary>
 public sealed class PresetStore
 {
-    readonly string _path;
-    public PresetStore(string path) { _path = path; }
+    public const string Kind = "chart";
+    readonly INamedStore _store;
 
-    public static string DefaultPath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DataAnalyzer", "presets.json");
+    /// <summary>JSON 파일 하나에 저장</summary>
+    public PresetStore(string path) : this(new FileNamedStore(_ => path)) { }
+    public PresetStore(INamedStore store) { _store = store; }
+
+    public string Where => _store.Where;
 
     public SortedDictionary<string, ChartConfig> Load()
     {
-        try
+        var r = new SortedDictionary<string, ChartConfig>();
+        foreach (var (n, js) in _store.List(Kind))
         {
-            if (!File.Exists(_path)) return new();
-            return JsonSerializer.Deserialize<SortedDictionary<string, ChartConfig>>(File.ReadAllText(_path), ChartConfig.Json) ?? new();
+            try { if (JsonSerializer.Deserialize<ChartConfig>(js, ChartConfig.Json) is { } c) r[n] = c; }
+            catch (JsonException) { }
         }
-        catch (Exception e) when (e is JsonException or IOException)
-        {
-            return new();
-        }
+        return r;
     }
 
-    public void Save(SortedDictionary<string, ChartConfig> presets)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(presets, ChartConfig.Json));
-    }
-
-    public void Put(string name, ChartConfig cfg) { var p = Load(); p[name] = cfg; Save(p); }
-    public void Remove(string name) { var p = Load(); if (p.Remove(name)) Save(p); }
+    public void Put(string name, ChartConfig cfg) => _store.Put(Kind, name, JsonSerializer.Serialize(cfg, ChartConfig.Json));
+    public void Remove(string name) => _store.Remove(Kind, name);
 }

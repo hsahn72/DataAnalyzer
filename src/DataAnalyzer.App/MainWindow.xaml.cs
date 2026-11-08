@@ -405,6 +405,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>계산 결과의 신호를 추가하고, 결과가 제안한 차트 중 아직 없는 것을 만든다.</summary>
+    void Db_Click(object sender, RoutedEventArgs e) => new Dialogs.DbDialog { Owner = this }.ShowDialog();
+
     WheelLoaderWindow? _wlWin;
 
     void WheelLoader_Click(object sender, RoutedEventArgs e)

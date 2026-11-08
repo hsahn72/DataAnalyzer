@@ -43,6 +43,7 @@
                     <ToggleButton x:Name="CursorBButton" Content="커서 B (델타/평균)" Margin="6,2,2,2" Padding="8,3" Click="CursorB_Click"/>
                     <Button Content="PNG 저장" Click="SavePng_Click"/>
                     <Button Content="구성·스타일 저장/불러오기" Click="Config_Click"/>
+                    <Button Content="DB 연결" ToolTip="파라미터·차트 구성 프리셋을 회사 SQL Server에 저장해 팀이 함께 씀" Click="Db_Click"/>
                     <CheckBox x:Name="KeepConfigBox" Content="새 데이터에 현재 구성 유지" VerticalAlignment="Center" Margin="6,0"/>
                     <!-- 기준 Data -->
                     <StackPanel x:Name="RefPanel" Orientation="Horizontal" Visibility="Collapsed" Margin="8,0,0,0">

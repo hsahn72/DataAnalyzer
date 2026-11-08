@@ -157,14 +157,9 @@ public sealed class ExcavatorWindow : Window
 
     // ================= ① 파라미터 =================
 
-    static string PresetFile => Ui.AppDataFile("excavator_params.json");
     static string LastFile => Ui.AppDataFile("excavator_last.json");
 
-    static Dictionary<string, string> LoadPresets()
-    {
-        try { return JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(PresetFile)) ?? new(); } catch { return new(); }
-    }
-    static void SavePresets(Dictionary<string, string> p) { try { File.WriteAllText(PresetFile, JsonSerializer.Serialize(p)); } catch { } }
+    static SortedDictionary<string, string> LoadPresets() => AppStore.List("excavator");
 
     void LoadLastParams()
     {
@@ -194,10 +189,11 @@ public sealed class ExcavatorWindow : Window
         p.Children.Add(Ui.Row(new TextBlock { Text = K.Name == "" ? "(이름 없음)" : K.Name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center }, Ui.Hint(K.Str("desc"))));
         var pre = new ComboBox { MinWidth = 180 };
         pre.Items.Add(new ComboBoxItem { Content = "예시 값 (20t급, 임의 값)", Tag = "__demo" });
-        foreach (var n in LoadPresets().Keys) pre.Items.Add(new ComboBoxItem { Content = n, Tag = n });
+        var presets = LoadPresets();
+        foreach (var n in presets.Keys) pre.Items.Add(new ComboBoxItem { Content = n, Tag = n });
         pre.SelectedIndex = 0;
         string Sel() => (string)((ComboBoxItem)pre.SelectedItem).Tag;
-        var msg = Ui.Msg(); Ui.SetMsg(msg, _kMsg, _kErr);
+        var msg = Ui.Msg(); Ui.SetMsg(msg, AppStore.LastError != "" ? AppStore.LastError : _kMsg, _kErr || AppStore.LastError != "");
         p.Children.Add(Ui.Row(
             Ui.Btn("파라미터 편집…", EditParams, true),
             Ui.Btn("JSON 가져오기…", ImportJson),
@@ -206,19 +202,19 @@ public sealed class ExcavatorWindow : Window
             {
                 var v = Sel();
                 if (v == "__demo") SetK(KinParams.Demo(), "예시 값을 불러왔습니다.");
-                else if (LoadPresets().TryGetValue(v, out var js)) SetK(KinParams.FromJson(js), "불러옴: " + v);
+                else if (presets.TryGetValue(v, out var js)) SetK(KinParams.FromJson(js), "불러옴: " + v);
             }),
             Ui.Btn("현재 값 저장", () =>
             {
                 var n = K.Name.Trim();
                 if (n == "") { Ui.SetMsg(msg, "Machine Name이 있어야 저장할 수 있습니다 ([파라미터 편집])", true); return; }
-                var ps = LoadPresets(); ps[n] = K.ToJson(); SavePresets(ps); _kMsg = "저장했습니다: " + n; _kErr = false; BuildParam();
-            }, tip: "이 PC에 Machine Name으로 저장"),
+                AppStore.Put("excavator", n, K.ToJson()); _kMsg = "저장했습니다: " + n + " (" + AppStore.Where + ")"; _kErr = false; BuildParam();
+            }, tip: AppStore.SaveTip + " — Machine Name으로"),
             Ui.Btn("삭제", () =>
             {
                 var v = Sel();
                 if (v == "__demo") { Ui.SetMsg(msg, "예시 값은 삭제할 수 없습니다", true); return; }
-                var ps = LoadPresets(); ps.Remove(v); SavePresets(ps); _kMsg = "삭제됨: " + v; _kErr = false; BuildParam();
+                AppStore.Remove("excavator", v); _kMsg = "삭제됨: " + v; _kErr = false; BuildParam();
             })));
         p.Children.Add(msg);
     }
@@ -486,6 +482,22 @@ public sealed class ExcavatorWindow : Window
     static string IpFile => Ui.AppDataFile("excavator_inertial.json");
     sealed class IpStore { public Dictionary<string, Dictionary<int, InertialSet>> Sets { get; set; } = new(); public Dictionary<int, InertialSet> Work { get; set; } = new(); }
     static IpStore LoadIp() { try { return JsonSerializer.Deserialize<IpStore>(File.ReadAllText(IpFile)) ?? new(); } catch { return new(); } }
+    /// <summary>저장된 세트 (이름 → 링크별 값). 예전 파일에 들어 있던 세트는 처음 한 번 저장소로 옮긴다.</summary>
+    static SortedDictionary<string, Dictionary<int, InertialSet>> IpSets()
+    {
+        var old = LoadIp();
+        if (old.Sets.Count > 0)
+        {
+            var have = AppStore.List(IpKind);
+            foreach (var (n, v) in old.Sets) if (!have.ContainsKey(n)) AppStore.Put(IpKind, n, JsonSerializer.Serialize(v));
+            old.Sets.Clear(); SaveIp(old);
+        }
+        var r = new SortedDictionary<string, Dictionary<int, InertialSet>>();
+        foreach (var (n, js) in AppStore.List(IpKind))
+            try { if (JsonSerializer.Deserialize<Dictionary<int, InertialSet>>(js) is { } v) r[n] = v; } catch (JsonException) { }
+        return r;
+    }
+    const string IpKind = "excavator_inertial";
     static void SaveIp(IpStore s) { try { File.WriteAllText(IpFile, JsonSerializer.Serialize(s)); } catch { } }
     static readonly Dictionary<int, string> IpName = new() { [4] = "Bucket", [3] = "Arm", [2] = "Boom" };
 
@@ -501,23 +513,23 @@ public sealed class ExcavatorWindow : Window
         if (d == null) { p.Children.Add(Ui.Hint("CSV를 먼저 여세요")); return; }
         if (_ipCur.Count == 0) foreach (var (k, v) in LoadIp().Work) _ipCur[k] = v;
         var msg = Ui.Msg();
-        var st = LoadIp();
+        var st = IpSets();
         var sets = new ComboBox { MinWidth = 140 }; sets.Items.Add(new ComboBoxItem { Content = "(저장된 세트 선택)", Tag = "" });
-        foreach (var n in st.Sets.Keys) sets.Items.Add(new ComboBoxItem { Content = n, Tag = n });
+        foreach (var n in st.Keys) sets.Items.Add(new ComboBoxItem { Content = n, Tag = n });
         sets.SelectedIndex = 0;
         string SelSet() => (string)((ComboBoxItem)sets.SelectedItem).Tag;
         var setName = new TextBox { Width = 120 };
         void Work() { var s = LoadIp(); s.Work = new(_ipCur); SaveIp(s); }
         p.Children.Add(Ui.Row(Ui.Bold("Inertial 세트"), sets,
-            Ui.Btn("불러오기", () => { var n = SelSet(); if (n == "") { Ui.SetMsg(msg, "불러올 세트를 선택하세요", true); return; } _ipCur.Clear(); foreach (var (k, v) in LoadIp().Sets[n]) _ipCur[k] = v; Work(); BuildIp(); }),
-            Ui.Btn("삭제", () => { var n = SelSet(); if (n == "") return; var s = LoadIp(); s.Sets.Remove(n); SaveIp(s); BuildIp(); }),
+            Ui.Btn("불러오기", () => { var n = SelSet(); if (n == "") { Ui.SetMsg(msg, "불러올 세트를 선택하세요", true); return; } _ipCur.Clear(); foreach (var (k, v) in st[n]) _ipCur[k] = v; Work(); BuildIp(); }),
+            Ui.Btn("삭제", () => { var n = SelSet(); if (n == "") return; AppStore.Remove(IpKind, n); BuildIp(); }),
             setName,
             Ui.Btn("세트로 저장", () =>
             {
                 var n = setName.Text.Trim();
                 if (n == "") { Ui.SetMsg(msg, "세트 이름을 입력하세요", true); return; }
                 if (_ipCur.Count == 0) { Ui.SetMsg(msg, "저장할 확정 값이 없습니다", true); return; }
-                var s = LoadIp(); s.Sets[n] = new(_ipCur); s.Work = new(_ipCur); SaveIp(s); BuildIp();
+                AppStore.Put(IpKind, n, JsonSerializer.Serialize(_ipCur)); Work(); BuildIp();
             }),
             Ui.Btn("① 파라미터에 적용", () =>
             {
