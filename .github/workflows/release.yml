@@ -1,0 +1,66 @@
+name: release
+
+# 공유 폴더에 올릴 배포 파일(zip)을 만든다.
+#  - Actions 탭 > release > Run workflow : zip을 이 실행의 Artifacts로 받을 수 있음
+#  - v1.2.3 같은 태그를 push              : GitHub Releases에 zip이 붙은 릴리스를 만듦
+#  - 배포 관련 파일을 바꾼 PR                : zip이 만들어지는지 확인 (Artifacts)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "버전 (예: 0.3.0)"
+        required: true
+        default: "0.3.0"
+  push:
+    tags: ["v*"]
+  # 배포 설정을 바꾸는 PR에서도 돌려서 zip이 제대로 만들어지는지 확인
+  pull_request:
+    paths: [".github/workflows/release.yml", "deploy/**", "docs/deploy.md"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '${{ inputs.version || '0.3.0' }}' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: dotnet test DataAnalyzer.sln -c Release
+
+      # .NET이 설치되지 않은 PC에서도 돌도록 런타임 포함(self-contained)으로 게시
+      - name: Publish
+        run: >
+          dotnet publish src/DataAnalyzer.App -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.v.outputs.version }}
+          -o out/DataAnalyzer/app
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item deploy/DataAnalyzer.cmd out/DataAnalyzer/
+          Copy-Item docs/deploy.md out/DataAnalyzer/README.md
+          Set-Content out/DataAnalyzer/version.txt "${{ steps.v.outputs.version }}"
+          Compress-Archive -Path out/DataAnalyzer -DestinationPath "DataAnalyzer-${{ steps.v.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DataAnalyzer-${{ steps.v.outputs.version }}
+          path: DataAnalyzer-${{ steps.v.outputs.version }}.zip
+
+      - name: GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DataAnalyzer-${{ steps.v.outputs.version }}.zip
