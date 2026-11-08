@@ -16,6 +16,7 @@ public sealed class KinParamDialog : Window
     readonly TextBox _name = new() { MinWidth = 260 }, _desc = new() { MinWidth = 360 };
     readonly TextBlock _msg = Ui.Msg();
     KinParams _base;
+    readonly ComboBox _xlUnit = new() { MinWidth = 60, ItemsSource = new[] { "mm", "m" }, SelectedIndex = 0, ToolTip = "엑셀 값의 길이 단위" };
 
     static readonly (string Key, string Def)[] Signs = { ("sB", "1"), ("sA", "1"), ("sJ", "1"), ("sP", "1") };
 
@@ -91,6 +92,8 @@ public sealed class KinParamDialog : Window
             Ui.Btn("적용", Apply, true),
             Ui.Btn("JSON 내보내기", Export),
             Ui.Btn("JSON 가져오기", Import),
+            Ui.Btn("Excel 가져오기", ImportXlsx),
+            Ui.Labeled("Excel 길이 단위", _xlUnit),
             Ui.Btn("예시 값 채우기", () => { Fill(KinParams.Demo()); Ui.SetMsg(_msg, "예시 값을 채웠습니다. [적용]을 누르세요."); }),
             Ui.Btn("닫기", Close)));
         var dock = new DockPanel();
@@ -193,5 +196,26 @@ public sealed class KinParamDialog : Window
         if (dlg.ShowDialog(this) != true) return;
         try { var k = KinParams.FromJson(File.ReadAllText(dlg.FileName)); _base = k.Clone(); Fill(k); Ui.SetMsg(_msg, "불러왔습니다. 확인 후 [적용]을 누르세요."); }
         catch (Exception ex) { Ui.SetMsg(_msg, "파일을 읽을 수 없습니다: " + ex.Message, true); }
+    }
+
+    /// <summary>Excel 양식의 F5:G69 (F=이름, G=값)에서 파라미터를 가져온다 (HTML kImportXlsx).</summary>
+    void ImportXlsx()
+    {
+        var dlg = new OpenFileDialog { Filter = "Excel (*.xlsx;*.xlsm)|*.xlsx;*.xlsm" };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            List<XlSheet> sheets;
+            using (var fs = new FileStream(dlg.FileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) sheets = XlsxParams.Read(fs);
+            var r = XlsxParams.Map(sheets);
+            if (r == null || r.Count == 0) { Ui.SetMsg(_msg, "F5:G69에서 인식된 파라미터 이름이 없습니다. (시트 " + string.Join(", ", sheets.Select(x => x.Name)) + ")", true); return; }
+            var k = Read(); var unit = (string)_xlUnit.SelectedItem; var name = Path.GetFileName(dlg.FileName);
+            var (miss, keep) = XlsxParams.Apply(k, r, unit, name);
+            Fill(k);
+            Ui.SetMsg(_msg, XlsxParams.Report(name, r, unit, miss, keep));
+        }
+        catch (InvalidDataException ex) { Ui.SetMsg(_msg, "엑셀을 읽지 못했습니다 (" + ex.Message + ")", true); }
+        catch (IOException ex) { Ui.SetMsg(_msg, "파일을 열 수 없습니다: " + ex.Message, true); }
+        catch (Exception ex) { Ui.SetMsg(_msg, "엑셀을 읽지 못했습니다 (" + ex.Message + "). .xlsx로 저장한 파일인지 확인하세요.", true); }
     }
 }
