@@ -1,7 +1,9 @@
 # DataAnalyzer
 
 굴착기·휠로더 시계열 데이터(CSV)를 차트로 보고 동작·에너지를 분석하는 Windows 데스크톱 앱입니다.
-HTML로 만든 'CSV 시계열 차트 뷰어'를 WPF(.NET 8, C#)로 옮기는 중입니다.
+HTML로 만든 'CSV 시계열 차트 뷰어'를 WPF(.NET 8, C#)로 옮긴 것입니다.
+
+공유 폴더 배포 방법은 [docs/deploy.md](docs/deploy.md)를 보세요.
 
 ## 실행
 
@@ -13,16 +15,16 @@ HTML로 만든 'CSV 시계열 차트 뷰어'를 WPF(.NET 8, C#)로 옮기는 중
 
 | 프로젝트 | 내용 |
 | --- | --- |
-| `src/DataAnalyzer.Core` | 화면과 무관한 계산부 (CSV 파서, 시계열 보간, 기준 데이터, 차트 구성 JSON). Windows가 아니어도 빌드·테스트 가능 |
+| `src/DataAnalyzer.Core` | 화면과 무관한 계산부 (CSV 파서, 시계열 보간, 기준 데이터, 차트 구성 JSON, Filter, Cycle 분석, 굴착기·휠로더 계산, Excel 파라미터). Windows가 아니어도 빌드·테스트 가능 |
 | `src/DataAnalyzer.App` | WPF 화면. 차트는 [ScottPlot 5](https://scottplot.net) (MIT) |
 | `tests/DataAnalyzer.Core.Tests` | Core 단위 테스트 (xUnit) |
 
 ## 진행 단계
 
-1. **뼈대와 차트 화면** (현재): CSV 열기(단위 행, Action 문자열), 시계열 차트 여러 개, 커서 A/B, 확대/이동, XY 차트, 기준 CSV 비교, 구성 저장/불러오기(HTML 뷰어 JSON 호환), PNG 저장
+1. **뼈대와 차트 화면**: CSV 열기(단위 행, Action 문자열), 시계열 차트 여러 개, 커서 A/B, 확대/이동, XY 차트, 기준 CSV 비교, 구성 저장/불러오기(HTML 뷰어 JSON 호환), PNG 저장
 2. 계산 기능 이전: Filter, Cycle/Action 분석, 굴착기 기구학·동력·동역학·관성 추정, 휠로더 Z-bar
-3. 분석 화면과 DB 연결: 2D 애니메이션, 파라미터 편집, Excel 가져오기, SQL Server 직접 조회
-4. 배포: 공유폴더 설치 파일
+3. 분석 화면: 굴착기·휠로더 분석 창, 2D 애니메이션, 파라미터 편집, Excel 가져오기 (DB 연결은 나중에)
+4. 배포: 공유 폴더 배포 파일 (GitHub Actions `release`), 실행기 `DataAnalyzer.cmd`
 
 ## 차트 조작
 

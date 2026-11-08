@@ -10,7 +10,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RootNamespace>DataAnalyzer.App</RootNamespace>
     <AssemblyName>DataAnalyzer</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.3.0</Version>
     <!-- ScottPlot.WPF가 쓰는 SkiaSharp.Views.WPF는 .NET Framework 대상 패키지지만 .NET 8에서 정상 동작 -->
     <NoWarn>$(NoWarn);NU1701</NoWarn>
   </PropertyGroup>

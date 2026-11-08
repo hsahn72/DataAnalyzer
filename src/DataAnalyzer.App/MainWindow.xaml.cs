@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var ver = typeof(MainWindow).Assembly.GetName().Version;
+        if (ver != null) Title += $"  v{ver.Major}.{ver.Minor}.{ver.Build}";
         S.Changed += OnViewChanged;
         S.DataChanged += OnDataChanged;
         PreviewKeyDown += OnKey;
