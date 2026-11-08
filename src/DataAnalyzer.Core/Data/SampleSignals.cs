@@ -22,8 +22,10 @@ public static class SampleSignals
             c[5][i] = 8 + 3 * Math.Abs(Math.Sin(s * .8)) + Noise(.4);
             c[6][i] = 50 + 45 * Math.Sin(s * .8 - .5);
         }
-        var names = new[] { "Time_s", "Pressure_bar", "Flow_Lpm", "Temp_C", "Position_mm", "Setpoint_mm", "Motor_A", "Valve_Cmd_pct" };
-        var cols = new[] { t }.Concat(c).ToArray();
+        var ex = Excavator.ExcavatorSample.Columns(t, rnd.NextDouble);
+        var names = new[] { "Time_s", "Pressure_bar", "Flow_Lpm", "Temp_C", "Position_mm", "Setpoint_mm", "Motor_A", "Valve_Cmd_pct" }
+            .Concat(Excavator.ExcavatorSample.Names).ToArray();
+        var cols = new[] { t }.Concat(c).Concat(ex).ToArray();
         return new RawTable(names, cols, new bool[names.Length], new string[names.Length].Select(_ => "").ToArray(), false,
             new Dictionary<string, SortedDictionary<int, string>>());
     }

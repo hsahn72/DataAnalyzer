@@ -57,6 +57,13 @@ public sealed class DataSet
         };
     }
 
+    /// <summary>시간축을 초 단위로. 날짜 시간축(ms)이거나 숫자 시간이 ms 단위면 1/1000.</summary>
+    public double[] TimeSeconds(bool numericIsMs = false)
+    {
+        double k = IsDate || numericIsMs ? 1e-3 : 1;
+        return k == 1 ? Time : Time.Select(x => x * k).ToArray();
+    }
+
     /// <summary>계산 결과 신호를 추가하거나 바꾼다.</summary>
     public void Put(string name, double[] values, string unit = "")
     {

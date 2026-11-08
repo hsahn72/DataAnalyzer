@@ -1,4 +1,5 @@
 using System.Windows.Media;
+using DataAnalyzer.Core.Analysis;
 using DataAnalyzer.Core.Data;
 
 namespace DataAnalyzer.App;
@@ -68,7 +69,7 @@ public sealed class AppState
             if (e.Length > 0) { Reference = null; ReferenceMessage = "기준 Data 해제: " + e; }
         }
         RecomputeFull();
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
     }
 
@@ -83,7 +84,7 @@ public sealed class AppState
         Reference = r;
         ReferenceMessage = "";
         RecomputeFull();
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
         return "";
     }
@@ -92,7 +93,7 @@ public sealed class AppState
     {
         Reference = null;
         RecomputeFull();
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
     }
 
@@ -101,7 +102,7 @@ public sealed class AppState
         if (Reference == null) return;
         Reference.SetOffset(seconds);
         RecomputeFull();
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
     }
 
@@ -110,14 +111,14 @@ public sealed class AppState
         if (Reference == null || Data == null) return;
         Reference.AlignStart(Data);
         RecomputeFull();
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
     }
 
     public void SetShowReference(bool on)
     {
         ShowReference = on;
-        DataChanged?.Invoke();
+        RaiseDataChanged();
         Notify();
     }
 
@@ -134,6 +135,15 @@ public sealed class AppState
         if (!(FullMax > FullMin)) FullMax = FullMin + 1;
         MinSpan = Math.Max((FullMax - FullMin) / Math.Max(1, Data.Count) * 3, 1e-9);
         ViewMin = FullMin; ViewMax = FullMax;
+        // 겹쳐보기 중이면 상대 시간축을 유지
+        _savedRange = null;
+        ClearCycleCaches();
+        if (OverlayOn)
+        {
+            _savedRange = (FullMin, FullMax, ViewMin, ViewMax);
+            double m = Groups.MaxRel;
+            FullMin = 0; FullMax = m > 0 ? m : 1; ViewMin = FullMin; ViewMax = FullMax;
+        }
     }
 
     /// <summary>폭을 유지한 채 전체 구간 안으로 이동</summary>
@@ -179,7 +189,7 @@ public sealed class AppState
 
     public void SetCursor(double t)
     {
-        if (Data == null) return;
+        if (Data == null || OverlayOn) return;
         t = Snap(Math.Min(FullMax, Math.Max(FullMin, t)));
         if (SelectB && CursorB != null) CursorB = t; else CursorA = t;
         Notify();
@@ -210,7 +220,8 @@ public sealed class AppState
         SetCursor(tm);
     }
 
-    public string TimeText(double t, double? span = null) => Format.Time(t, Data?.IsDate == true, span);
+    public string TimeText(double t, double? span = null) =>
+        OverlayOn ? Format.Precision(t, 6) : Format.Time(t, Data?.IsDate == true, span);
 
     public string CursorReadout()
     {
@@ -253,14 +264,177 @@ public sealed class AppState
         return s;
     }
 
+    /// <summary>계산한 신호를 데이터에 추가 (같은 이름이면 바꿈)하고 화면을 갱신한다.</summary>
+    public void PutSignal(string name, double[] values, string unit = "")
+    {
+        if (Data == null) return;
+        Data.Put(name, values, unit);
+        RaiseDataChanged();
+        Notify();
+    }
+
     public void Clear()
     {
         Raw = null; Data = null; Reference = null; FileName = "";
         CursorA = CursorB = null; SelectB = false;
         RecomputeFull();
+        RaiseDataChanged();
+        Notify();
+    }
+
+    // ===================== Cycle / Action 거르기 · 겹쳐보기 =====================
+
+    /// <summary>Cycle 번호 열 (자동 감지: Cycle, Cycle_No …)</summary>
+    public string? CycleColumn { get; private set; }
+    /// <summary>Action 열 (자동 감지: Action, Action_Code …)</summary>
+    public string? ActionColumn { get; private set; }
+    /// <summary>선택한 Cycle (null = 전체)</summary>
+    public int? CycleSelection { get; private set; }
+    /// <summary>선택한 Action (null = 전체)</summary>
+    public int? ActionSelection { get; private set; }
+    /// <summary>'Cycle 기준 View' 체크</summary>
+    public bool OverlayChecked { get; private set; }
+    /// <summary>겹침 표시: auto / ind(개별선) / band(평균±산포)</summary>
+    public string OverlayMode { get; private set; } = "auto";
+    /// <summary>개별선 자동 전환 기준 (이보다 많으면 평균±산포)</summary>
+    public const int MaxIndividual = 15;
+
+    double[]? CycArr => CycleColumn != null && Data != null && Data.Signals.TryGetValue(CycleColumn, out var a) ? a : null;
+    double[]? ActArr => ActionColumn != null && Data != null && Data.Signals.TryGetValue(ActionColumn, out var a) ? a : null;
+
+    readonly Dictionary<string, double[]> _maskedCache = new();
+    readonly Dictionary<string, CycleBand> _bandCache = new();
+    byte[]? _mask;
+    (List<CycleGroup> List, double MaxRel)? _groups;
+    (double Min, double Max, double VMin, double VMax)? _savedRange;
+    double[]? _lastCyc, _lastAct;
+
+    /// <summary>Cycle·Action으로 거르는 중인지</summary>
+    public bool Filtering => Data != null && ((CycleSelection != null && CycArr != null) || (ActionSelection != null && ActArr != null));
+
+    /// <summary>겹쳐보기 중인지 (체크했거나, Cycle 전체 + Action 하나를 골랐을 때)</summary>
+    public bool OverlayOn
+    {
+        get
+        {
+            if (Data == null || CycArr == null) return false;
+            bool want = OverlayChecked || (CycleSelection == null && ActionSelection != null && ActArr != null);
+            return want && Groups.List.Count > 0;
+        }
+    }
+
+    public (List<CycleGroup> List, double MaxRel) Groups =>
+        _groups ??= CycArr == null || Data == null ? (new List<CycleGroup>(), 0)
+            : CycleView.Groups(Data.Time, CycArr, ActArr, CycleSelection, ActionSelection, Data.IsDate ? 1e-3 : 1);
+
+    public bool UseBand
+    {
+        get
+        {
+            int n = Groups.List.Count;
+            return OverlayMode == "band" ? n > 1 : OverlayMode != "ind" && n > MaxIndividual;
+        }
+    }
+
+    public CycleBand Band(string s)
+    {
+        if (!_bandCache.TryGetValue(s, out var b))
+            _bandCache[s] = b = CycleView.Band(Data!.Signals[s], Groups.List, Groups.MaxRel);
+        return b;
+    }
+
+    /// <summary>표시용 신호 값 (Cycle·Action으로 거르는 중이면 밖은 NaN)</summary>
+    public double[] Arr(string s)
+    {
+        var a = Data!.Signals[s];
+        if (!Filtering) return a;
+        if (!_maskedCache.TryGetValue(s, out var o))
+        {
+            _mask ??= CycleView.Mask(Data.Count, CycArr, ActArr, CycleSelection, ActionSelection);
+            _maskedCache[s] = o = CycleView.ApplyMask(a, _mask);
+        }
+        return o;
+    }
+
+    /// <summary>Action 코드 이름 (CSV에 문자열이 있었으면 그 이름)</summary>
+    public string ActionLabel(int v)
+    {
+        IReadOnlyDictionary<int, string>? cats = null;
+        if (ActionColumn != null && Raw != null && Raw.Categories.TryGetValue(ActionColumn, out var c)) cats = c;
+        return CycleAnalysis.ActionLabel(v, cats);
+    }
+
+    public List<int> CycleValues => CycleView.CycleValues(CycArr);
+    public List<int> ActionValues => CycleView.ActionValues(ActArr);
+
+    public void SetCycleSelection(int? cyc, int? act, bool overlay)
+    {
+        CycleSelection = cyc; ActionSelection = act; OverlayChecked = overlay;
+        ApplyCycleView();
+    }
+
+    public void SetOverlayMode(string mode)
+    {
+        OverlayMode = mode;
         DataChanged?.Invoke();
         Notify();
     }
+
+    void ClearCycleCaches()
+    {
+        _maskedCache.Clear(); _bandCache.Clear(); _mask = null; _groups = null;
+    }
+
+    /// <summary>거르기·겹쳐보기 변경: 겹쳐보기면 X축을 상대 시간 [0, 최장 Cycle]로 바꾸고, 끄면 원래 구간으로 되돌린다.</summary>
+    void ApplyCycleView()
+    {
+        ClearCycleCaches();
+        if (Data != null)
+        {
+            if (OverlayOn)
+            {
+                _savedRange ??= (FullMin, FullMax, ViewMin, ViewMax);
+                double m = Groups.MaxRel;
+                FullMin = 0; FullMax = m > 0 ? m : 1; ViewMin = FullMin; ViewMax = FullMax;
+                MinSpan = Math.Max(FullMax / Math.Max(1, Data.Count) * 3, 1e-9);
+            }
+            else if (_savedRange is { } sr)
+            {
+                FullMin = sr.Min; FullMax = sr.Max; ViewMin = sr.VMin; ViewMax = sr.VMax;
+                MinSpan = Math.Max((FullMax - FullMin) / Math.Max(1, Data.Count) * 3, 1e-9);
+                _savedRange = null;
+            }
+        }
+        DataChanged?.Invoke();
+        Notify();
+    }
+
+    /// <summary>데이터가 바뀜: Cycle·Action 열을 다시 찾고, 그 값이 바뀌었으면 선택을 전체로 되돌린다.</summary>
+    void RaiseDataChanged()
+    {
+        ClearCycleCaches();
+        CycleColumn = Data == null ? null : CycleView.FindCycleColumn(Data.Names);
+        ActionColumn = Data == null ? null : CycleView.FindActionColumn(Data.Names);
+        if (!ReferenceEquals(CycArr, _lastCyc) || !ReferenceEquals(ActArr, _lastAct))
+        {
+            _lastCyc = CycArr; _lastAct = ActArr;
+            if (CycleSelection != null || ActionSelection != null || OverlayChecked)
+            {
+                CycleSelection = null; ActionSelection = null; OverlayChecked = false;
+                CycleSelectionReset?.Invoke();
+            }
+        }
+        if (_savedRange is { } sr && !OverlayOn)
+        {
+            // 선택이 풀려 겹쳐보기가 꺼짐: 원래 시간축으로
+            FullMin = sr.Min; FullMax = sr.Max; ViewMin = sr.VMin; ViewMax = sr.VMax;
+            _savedRange = null;
+        }
+        DataChanged?.Invoke();
+    }
+
+    /// <summary>데이터가 바뀌어 Cycle·Action 선택이 전체로 돌아갔을 때 (콤보 갱신용)</summary>
+    public event Action? CycleSelectionReset;
 
     /// <summary>변경 알림을 다음 렌더 프레임에 한 번만 보낸다 (마우스 드래그 중 과도한 다시 그리기 방지).</summary>
     public void Notify()
