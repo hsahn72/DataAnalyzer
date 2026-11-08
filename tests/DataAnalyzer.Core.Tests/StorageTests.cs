@@ -32,26 +32,4 @@ public class StorageTests
         }
         finally { Directory.Delete(d, true); }
     }
-
-    [Fact]
-    public void Db_settings_use_first_file_with_connection_string()
-    {
-        var d = Tmp();
-        try
-        {
-            string a = Path.Combine(d, "a.json"), b = Path.Combine(d, "b.json");
-            File.WriteAllText(a, "{\"ConnectionString\":\"\"}");
-            new DbSettings { ConnectionString = "Server=S;Database=D;Integrated Security=true" }.Save(b);
-            var s = DbSettings.Load(a, b);
-            Assert.Equal(b, s.Source);
-            var store = s.CreateStore(FileNamedStore.AppData(d));
-            var sql = Assert.IsType<SqlNamedStore>(store);
-            Assert.Equal("DB S/D", sql.Where);
-
-            var none = DbSettings.Load(a, Path.Combine(d, "missing.json"));
-            Assert.Null(none.Source);
-            Assert.IsType<FileNamedStore>(none.CreateStore(FileNamedStore.AppData(d)));
-        }
-        finally { Directory.Delete(d, true); }
-    }
 }

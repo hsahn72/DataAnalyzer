@@ -193,7 +193,7 @@ public sealed class ExcavatorWindow : Window
         foreach (var n in presets.Keys) pre.Items.Add(new ComboBoxItem { Content = n, Tag = n });
         pre.SelectedIndex = 0;
         string Sel() => (string)((ComboBoxItem)pre.SelectedItem).Tag;
-        var msg = Ui.Msg(); Ui.SetMsg(msg, AppStore.LastError != "" ? AppStore.LastError : _kMsg, _kErr || AppStore.LastError != "");
+        var msg = Ui.Msg(); Ui.SetMsg(msg, _kMsg, _kErr);
         p.Children.Add(Ui.Row(
             Ui.Btn("파라미터 편집…", EditParams, true),
             Ui.Btn("JSON 가져오기…", ImportJson),
